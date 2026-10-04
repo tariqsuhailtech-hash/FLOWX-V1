@@ -1,0 +1,42 @@
+{
+  "summary": "Comprehensive backend + frontend testing of FLOWX real-data pipeline. 37/37 backend tests pass (auth, role protection, user CRUD, admin, public, WS pipeline for BINANCE/BYBIT/GATE.IO). Frontend auth flows and terminal all work: masteruser->/dashboard, admin->/admin, non-admin->/dashboard, logged-out protected routes redirect to /login. Terminal shows LIVE BINANCE spot with real BTC price (~$85,115), real DOM, time&sales, footprint cells, order flow metrics (buy/sell/total/delta/CVD). Exchange/market-type/tf/symbol/bottom-tab testids present and functional. Gate.io shows DISCONNECTED + 'Coming Later'. Admin dashboard renders overview metrics + 3 feed cards (BINANCE connected, BYBIT idle, GATE.IO Disconnected) + user table + system config. One CRITICAL contradiction found: landing hero preview widget label literally reads 'PREVIEW · SIMULATED DATA' while the FAQ copy promises 'no simulated or random market data anywhere' — a direct violation of the ABSOLUTE no-fake-data mandate.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "WS /api/ws/market GATE.IO", "issue": "First snapshot can arrive with state.status='connecting' before transitioning to 'disconnected'. Not fake data (acceptable), but could be set to 'disconnected' immediately with 'Coming Later' reason to match the admin feed label."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "components/landing/TerminalPreview.jsx (line 19)", "issue": "Hero preview widget displays the literal label 'PREVIEW · SIMULATED DATA'. The widget itself shows 'Connecting to market feed…' / empty state, but the badge text directly contradicts the project's ABSOLUTE RULE of zero simulated data and the FAQ claim 'no simulated or random market data anywhere in the app'. Either remove the badge, change it to 'PREVIEW · LIVE BINANCE' and wire it to the real WS, or replace with a static illustration.", "selector": "landing hero preview badge", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin -> BYBIT feed card", "issues": ["Shows 'IDLE' with 0 msgs/sec when no WS subscriber is active. This is accurate but might confuse admins — consider labeling as 'READY (no subscribers)' vs truly disconnected."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_flowx_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Remove or replace the 'PREVIEW · SIMULATED DATA' label in /app/frontend/src/components/landing/TerminalPreview.jsx — this violates the zero-fake-data mandate and contradicts the FAQ.",
+    "Optional: make GATE.IO session emit 'disconnected' + 'Coming Later' immediately on subscribe instead of starting as 'connecting'."
+  ],
+  "critical_code_review_comments": [
+    "routes_admin.py imports ObjectId but it is already used — fine; however patch_user accepts arbitrary 'role' values; consider validating allowed roles {'user','admin'} and allowed plan values to avoid admin accidentally setting invalid data.",
+    "auth.py set_cookie uses samesite='none' secure=True which requires HTTPS — fine for preview, but no CSRF protection on auth-cookie flow; mitigated by Bearer token in frontend but should be documented.",
+    "routes_user.py update_settings merges arbitrary dict without validation; low risk since per-user, but could store large/unexpected keys.",
+    "landing TerminalPreview.jsx should not use the word 'SIMULATED' per project mandate (see above)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_flowx_backend.py (new comprehensive pytest suite with 37 tests)"
+  ],
+  "success_rate": {"backend": "100% (37/37)", "frontend": "~95% (all core flows pass; one copy/label violation)"},
+  "test_credentials": "admin@flowx.com/password, masteruser@flowx.com/password (also created ephemeral TEST_ users during tests)",
+  "seed_data_creation": "Register test creates a transient TEST_<uuid>@flowx.com user per run; alerts/signals/layouts/journal items are created and deleted within the same test.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/test_flowx_backend.py uses REACT_APP_BACKEND_URL and runs in <10s. All 37 tests green. Known WS behaviour: BINANCE spot=live, BYBIT spot+perp=live, BINANCE perp & GATE.IO=disconnected (by design). Frontend terminal needs ~8-12s warmup to show LIVE. Login button data-testid is 'login-submit-button' (not 'login-submit'). The main remaining action for main agent is scrubbing the 'SIMULATED DATA' label from TerminalPreview.jsx.",
+  "rca of the issue": "The landing hero was ported from the old simulated-data UI; the badge string was never updated when the real pipeline replaced the old browser-side simulator. Fix: edit /app/frontend/src/components/landing/TerminalPreview.jsx line 19 — replace 'PREVIEW · SIMULATED DATA' with e.g. 'PREVIEW · LIVE BINANCE' (and ideally wire the preview to the real /api/ws/market feed) OR remove the badge entirely."
+}
