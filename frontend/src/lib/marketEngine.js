@@ -52,9 +52,19 @@ export class MarketEngine {
   snapshot() { return this.snap; }
 
   emit() {
-    this.state.version = (this.state.version || 0) + 1;
-    this.snap = { ...this.state };
-    this.listeners.forEach((fn) => fn(this.snap));
+    if (this._pending) return; // coalesce + break synchronous re-render loop (fixes update-depth crash)
+    this._pending = true;
+    const run = () => {
+      if (!this._pending) return;
+      this._pending = false;
+      if (this._raf) { try { cancelAnimationFrame(this._raf); } catch {} this._raf = 0; }
+      clearTimeout(this._pt);
+      this.state.version = (this.state.version || 0) + 1;
+      this.snap = { ...this.state };
+      this.listeners.forEach((fn) => fn(this.snap));
+    };
+    this._raf = typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame(run) : 0;
+    this._pt = setTimeout(run, 120); // fallback when rAF is throttled (hidden/headless)
   }
 
   start() {
@@ -67,6 +77,9 @@ export class MarketEngine {
   stop() {
     this.session++;
     clearTimeout(this._retry);
+    this._pending = false;
+    if (this._raf) { try { cancelAnimationFrame(this._raf); } catch {} this._raf = 0; }
+    clearTimeout(this._pt);
     if (this.ws) {
       this.ws.onopen = this.ws.onclose = this.ws.onmessage = this.ws.onerror = null;
       try { this.ws.close(); } catch {}
@@ -75,7 +88,11 @@ export class MarketEngine {
   }
 
   configure(patch) {
-    Object.assign(this.cfg, patch);
+    const next = { ...this.cfg, ...patch };
+    const sameFeed = this.ws && next.exchange === this.cfg.exchange && next.symbol === this.cfg.symbol &&
+      next.tf === this.cfg.tf && next.marketType === this.cfg.marketType;
+    this.cfg = next;
+    if (sameFeed) return; // nothing that affects the stream changed -> keep the live socket
     this.start();
   }
 
